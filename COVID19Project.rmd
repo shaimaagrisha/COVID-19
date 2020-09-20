@@ -1,0 +1,1086 @@
+---
+title: "COVID-19 Project"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+---
+
+## ***Gehad Gad***
+## May 11th, 2020
+
+
+# 1. Introduction:
+
+Coronavirus Disease 2019 (COVID-19) is one of the coronavirus family that is usually common in animals. COVID-19 affects the respiratory and cause symptoms such as: cough, fever, shortness of breath, muscle aches, sore throat, unexplained loss of taste or smell, diarrhea and headache. COVID-19 can be severe, and some cases have caused death.
+There are 4,013,728 confirmed cases and 278,993 Confirme deaths of COVID-19 
+
+# 2. Project objectives
+1.Determine the effective factors/features on spreading Coronavirus.
+2.Detect the factor(s) that may lead to increase the fatality rate.
+3.Build a classifier that can estimate the probability of being infected.
+
+
+# 3. Methodolgy:
+
+
+Data cleaning, prepration, statistical analysis metrics such as: mean, median, and correlation.The analysis include graphs; histograms, box plots, barplot, and time series plot to make better view.***Backward selection*** method to choose the most effective features indicated using the changes in model performance.***Random Forest*** algorithm to detect the most important features in relation with the infection and deaths. and finally is***Neural Network Model***.
+
+
+# 4. Packages and libraries
+
+```{r}
+if(!require(dplyr)){
+    install.packages("dplyr")
+    library(dplyr)
+}
+if(!require(ggplot2)){
+    install.packages("ggplot2")
+    library(ggplot2)
+}
+if(!require(keras)){
+    install.packages("keras")
+    library(keras)
+}
+if(!require(fastDummies)){
+    install.packages("fastDummies")
+    library(fastDummies)
+}
+if(!require(caTools)){
+    install.packages("caTools")
+    library(caTools)
+}
+if(!require(caret)){
+    install.packages("caret")
+    library(caret)
+}
+if(!require(randomForest)){
+    install.packages("randomForest")
+    library(randomForest)
+}
+if(!require(e1071)){
+    install.packages("e1071")
+    library(e1071)
+}
+if(!require(rjson)){
+    install.packages("rjson")
+    library(rjson)
+}
+```
+
+# 5. Research 1: Data analysis
+
+## Datasets used :
+1.COVID-19 global report
+2. Countries’ space or size and GDP dataset
+3. Countries detailed reports for literacy, 4. foods dataset
+5. Countries detailed reports for production, 6. healthcare quality care quality, education dataset 
+
+
+
+```{r}
+
+#Import the data
+global_data <- read.csv('train.csv')
+
+#Display the first few fows.
+head(global_data)
+```
+
+# The ID column is not an effective feature as it represents the observation index so it must be deleted
+
+```{r}
+#Remove the ID column
+global_data = global_data[-c(1)]
+```
+
+# Examin the structure of the data
+
+```{r}
+str(global_data)
+```
+
+# As we see both countries and state have a certain values so , they must be categorical data
+
+
+```{r}
+#The date in this data is defined as factor and to do time series analysis, we need to convert it into date type
+
+global_data$Date = as.character(global_data$Date)
+global_data$Date = as.Date(global_data$Date, format = "%Y-%m-%d")
+
+
+str (global_data)
+```
+
+
+
+```{r}
+# Analyze the data using decribtive statistics. we will start by analyzing the continues data
+
+confirmed_countries = aggregate(global_data$ConfirmedCases,list(global_data$Country.Region),sum)
+
+print(confirmed_countries)
+```
+
+
+```{r}
+#Gather all the fatalities in each country
+
+death_countries = aggregate(global_data$Fatalities,list(global_data$Country.Region),sum)
+
+print(death_countries)
+```
+
+
+```{r}
+Countries_means = death_countries
+
+# Renaming the x column to mean_deaths
+
+colnames(Countries_means)[2] <-"Fatalities"
+
+# Adding the mean infection to the data frame called (Countries_means). 
+
+Countries_means['ConfirmedCases'] = confirmed_countries$x
+
+head(Countries_means)
+```
+
+```{r}
+#import the geo info for the countries
+#data source:
+#geo = read.csv('Counties geo.csv')
+colnames(geo)[2] <-"Area"
+head(geo)
+```
+
+```{r}
+# Match the geographical data with the first data (global_data)
+
+global_data$Area <- geo$Area[match(global_data$Country.Region, geo$Country)]
+
+global_data$population <- geo$Population[match(global_data$Country.Region, geo$Country)]
+
+global_data$Continent <- geo$Continent[match(global_data$Country.Region, geo$Country)]
+
+print (global_data)
+```
+
+
+```{r}
+#population per kilometer 
+
+global_data$pop_per_k = global_data$population / global_data$Area
+
+head(global_data)
+```
+
+```{r}
+#Gather the of the population per kilometer for each country.
+
+mean_numbers_per_k = aggregate(global_data$pop_per_k,list(global_data$Country.Region),mean)
+
+print(mean_numbers_per_k)
+```
+
+```{r}
+#Merge the population ratio to our countries_means data. 
+Countries_means['population_ration'] = mean_numbers_per_k$x
+
+#rename the cloumn Group.1 to Country
+
+colnames(Countries_means)[1] <-"Country"
+
+#Display the head
+print(Countries_means)
+
+```
+
+
+
+```{r}
+# Remove the outliers
+
+#Make a copy of our data (Countries_means)
+country = Countries_means
+
+#Search for outliers in population_ration.
+outliers <- boxplot(Countries_means$population_ration, plot=FALSE)$out
+Countries_means<- Countries_means[-which(Countries_means$population_ration %in% outliers),]
+
+#Check for outliers in Fatalities
+outliers <- boxplot(Countries_means$Fatalities, plot=FALSE)$out
+Countries_means<- Countries_means[-which(Countries_means$Fatalities %in% outliers),]
+
+#Check for outliers in Confirmed cases
+outliers <- boxplot(Countries_means$ConfirmedCases, plot=FALSE)$out
+Countries_means<- Countries_means[-which(Countries_means$ConfirmedCases %in% outliers),]
+
+
+```
+
+
+```{r}
+hist(Countries_means$Fatalities)
+```
+
+The histogram plot showa that the most frequent deaths is between 0 and 5 deaths. We can tell that the data of the Fatalities cases is not normally distributed, which will help us in our descriptive analysis
+
+
+```{r}
+hist(Countries_means$ConfirmedCases )
+
+```
+
+
+The histogram plot that the most frequent infections is between 0 and 500 cases. We can tell that the data of the Confirmed cases is not normally distributed, which will help us in our descriptive analysis
+
+```{r}
+hist(Countries_means$population_ration )
+
+```
+
+The histogram plot shows the most frequent population per kilometer is between 0 and 100. We can tell that the data of the Fatalities cases is not normally distributed, which will help us in our descriptive analysis
+
+```{r}
+#Find the confirmed and deaths cases by continents.
+Continents_casses_sum = aggregate(global_data$ConfirmedCases,list(global_data$Continent),sum)
+Continents_deaths_sum = aggregate(global_data$Fatalities,list(global_data$Continent),sum)
+
+#Combine the two columns in a new data frame called (Continents_means)
+Continents_means = Continents_casses_sum
+Continents_means['Fatalities'] = Continents_deaths_sum$x
+
+#Renaming the columns names
+colnames(Continents_means)[2] <-"Confirmed"
+colnames(Continents_means)[1] <-"continent"
+
+#Display the head
+head(Continents_means)
+
+```
+
+
+```{r}
+
+#Get the difference between the Confirmed and Fatalities.
+
+Continents_means$Difference = Continents_means$Confirmed / Continents_means$Fatalities
+
+
+head(Continents_means)
+
+
+```
+
+
+```{r}
+
+ggplot(data=Continents_means, aes(x=continent, y=Fatalities)) +
+  geom_bar(stat="identity")
+```
+
+we have indication that Asia is the highest country with Fatalities, Europe is in the second place
+
+```{r}
+ggplot(data=Continents_means, aes(x=continent, y=Confirmed)) +
+  geom_bar(stat="identity")
+```
+
+we have indication that Asia is the highest country with infected cases, Europe is in the second place.
+
+
+```{r}
+ggplot(data=Continents_means, aes(x=continent, y=Difference)) +
+  geom_bar(stat="identity")
+```
+
+
+```{r}
+#Time series of the confirmed cases
+ggplot(global_data, aes(x=Date, y=ConfirmedCases)) +
+  geom_line( color="steelblue") + 
+  geom_point() +
+  xlab("") 
+```
+
+```{r}
+#Seprate the confirmed cases and fatalities cases
+GlobalConfirmedCasses = aggregate(global_data$ConfirmedCases,list(global_data$Date),sum)
+GlobalDeathCases = aggregate(global_data$Fatalities,list(global_data$Date),sum)
+
+#Combine them in a new data frame and rename the columns
+
+GlobalConfimred_Deaths = GlobalConfirmedCasses
+GlobalConfimred_Deaths['Totaldeaths'] = GlobalDeathCases$x
+colnames(GlobalConfimred_Deaths)[2] <-"casses"
+colnames(GlobalConfimred_Deaths)[1] <-"Date"
+
+#Display the head
+head(GlobalConfimred_Deaths)
+```
+
+```{r}
+ggplot(GlobalConfimred_Deaths, aes(x=Date, y=casses)) +
+  geom_line( color="steelblue") + 
+  geom_point() +
+  xlab("") 
+```
+
+
+
+```{r}
+ggplot(GlobalConfimred_Deaths, aes(x=Date, y=Totaldeaths)) +
+  geom_line( color="steelblue") + 
+  geom_point() +
+  xlab("")
+```
+
+As we have another strong indication that as the time passes both death cases and infection cases increase all around the world. we can indicate a strong relationship between the infection and the deaths as both of the trends have the same shape 
+
+```{r}
+
+#Import another dataset
+#general_countries <- read.csv('gender_development.csv')
+
+#Rename columns names
+colnames(general_countries)[3] <-"GENDER_DEVELOPMENT"
+colnames(general_countries)[6] <-"FEMALE_LIFE_EXPENTANCY_ON_BIRTH"
+colnames(general_countries)[7] <-"MALE_LIFE_EXPENTANCY_ON_BIRTH"
+colnames(general_countries)[8] <-"FEMALE_YEARS_LEARNING"
+colnames(general_countries)[9] <-"MALE_YEARS_LEARNING"
+colnames(general_countries)[12] <-"GDP"
+
+#Change some columns to be numeric
+general_countries$GENDER_DEVELOPMENT = as.numeric(as.character(general_countries$GENDER_DEVELOPMENT))
+general_countries$ FEMALE_LIFE_EXPENTANCY_ON_BIRTH=as.numeric(as.character(general_countries$FEMALE_LIFE_EXPENTANCY_ON_BIRTH))
+general_countries$ MALE_LIFE_EXPENTANCY_ON_BIRTH= as.numeric(as.character(general_countries$MALE_LIFE_EXPENTANCY_ON_BIRTH))
+general_countries$FEMALE_YEARS_LEARNING = as.numeric(as.character(general_countries$FEMALE_YEARS_LEARNING))
+general_countries$MALE_YEARS_LEARNING = as.numeric(as.character(general_countries$MALE_YEARS_LEARNING))
+general_countries$GDP = as.numeric(as.character(general_countries$GDP))
+
+#Display the head
+head(general_countries)
+```
+
+
+```{r}
+#Get the difference of expected education among males and females
+general_countries$EXPECTED_EDUCATION_YEARS = (general_countries$FEMALE_YEARS_LEARNING + general_countries$MALE_YEARS_LEARNING)/2
+
+##Get the difference of expected life on birth among males and females
+
+general_countries$EXPECTED_lIFE_ON_BIRTH = (general_countries$FEMALE_LIFE_EXPENTANCY_ON_BIRTH + general_countries$MALE_LIFE_EXPENTANCY_ON_BIRTH )/2
+
+```
+
+
+```{r}
+#Add and match GDP, EXPECTED EDUCATION YEARS, EXPECTED LIFE ON BIRTH to the COUNTRIES_MEANS data.
+
+Countries_means$GDP = general_countries$GDP[match(Countries_means$Country, general_countries$Country)]
+
+Countries_means$EXPECTED_EDUCATION_YEARS<-general_countries$EXPECTED_EDUCATION_YEARS[match(Countries_means$Country, Countries_means$Country)]
+
+Countries_means$EXPECTED_lIFE_ON_BIRTH<-general_countries$EXPECTED_lIFE_ON_BIRTH[match(Countries_means$Country, general_countries$Country)]
+
+#Display the head
+head(Countries_means)
+```
+
+```{r}
+str(Countries_means)
+```
+
+### Correlation
+
+To calculate the relationship between the continuous variables, we have used the spearman correlation as the data is not normally distributed which is important condition to use the standard correlation (pearson).
+
+
+```{r}
+cor(Countries_means$ConfirmedCases, Countries_means$GDP, method = "spearman", use = "complete.obs")
+```
+
+The Correlation between the GDP (Growth Development Progress) and the infection is : 0.5531839 (medium positive relationship). GDP is an economical definition but I find it to be indication that rich countries have specific features that participate in the spreading of the COVID-19 like : food, education, etc.
+
+```{r}
+cor(Countries_means$ConfirmedCases, Countries_means$EXPECTED_lIFE_ON_BIRTH, method = "spearman", use = "complete.obs")
+
+```
+
+Correlation between the EXPECTED_lIFE_ON_BIRTH and the infection is : 0.5781181 (also medium positive relationship).
+We can think of the feature EXPECTED_lIFE_ON_BIRTH is an Indecation to the quality of healthcare system in the country, eventhough it has a medium relationship with the spreading.
+
+```{r}
+cor(Countries_means$EXPECTED_EDUCATION_YEARS, Countries_means$ConfirmedCases, method = "spearman", use = "complete.obs")
+
+```
+
+The correlation between the EXPECTED_EDUCATION_YEARS and the infection is : -0.09366682 (weak negative relationship).
+ 
+```{r}
+#Import another data that has information the gender and age of COVID19 patients
+data2 = read.csv('metadata.csv')
+
+#Remve unnecassary features
+
+data2 = data2[c(2,3,4,5)]
+head(data2)
+
+```
+
+```{r}
+data2<-data2[(data2$finding=="COVID-19"),]
+
+```
+
+
+```{r}
+#Show the distribution of COVID-19 among males and females
+barplot(prop.table(table(data2$sex)))
+```
+
+ 
+
+This barplot shows that males have higher infection rate than females.  
+
+
+```{r}
+hist(data2$age)
+```
+
+People between 40 to 70 years of age are more infected with COVID-19. The highest infection rate is in the age range of 40 to 70 years old, Which makes sense as the immunity becomes weaker as we advance in age.
+
+
+```{r}
+
+#more graph to show the relationship between age and gender
+ggplot(data2, 
+       aes(x = age, 
+           fill = sex)) + 
+  geom_histogram(position = "stack")
+```
+
+```{r}
+#Import another data that has useful information about the usage of fat and dairy supplement all over the countries.
+data3 = read.csv('Fat_Supply_Quantity_Data.csv')
+```
+
+```{r}
+#Select important columns only
+data3 = data3[c(1,3,4,6,7,8,9,10,11,12,13)]
+#Display the data
+head(data3)
+```
+
+
+
+```{r}
+#Rename columns names:
+
+colnames(data3)[2] <-"animal_products"
+colnames(data3)[3] <-"animal_fats"
+colnames(data3)[4] <-"Cerial_excluding_beer"
+colnames(data3)[5] <-"Eggs"
+colnames(data3)[6] <-"Fish"
+colnames(data3)[7] <-"Fruits"
+colnames(data3)[8] <-"Meat"
+colnames(data3)[9] <-"Miscellaneous"
+colnames(data3)[10] <-"Milk"
+
+#Match and add these columns to our previous data (Countries_means)
+
+Countries_means$animal_products <- data3$animal_products[match(Countries_means$Country, data3$Country)]
+Countries_means$animal_fats <- data3$animal_fats[match(Countries_means$Country, data3$Country)]
+Countries_means$Cerial_excluding_beer <- data3$Cerial_excluding_beer[match(Countries_means$Country, data3$Country)]
+Countries_means$Eggs <- data3$Eggs[match(Countries_means$Country, data3$Country)]
+Countries_means$Fish <- data3$Fish[match(Countries_means$Country, data3$Country)]
+Countries_means$Fruits <- data3$Fruits[match(Countries_means$Country, data3$Country)]
+Countries_means$Meat <- data3$Meat[match(Countries_means$Country, data3$Country)]
+Countries_means$Miscellaneous <- data3$Miscellaneous[match(Countries_means$Country, data3$Country)]
+Countries_means$Milk <- data3$Milk[match(Countries_means$Country, data3$Country)]
+
+print(Countries_means)
+```
+
+
+
+```{r}
+#data4 = read.csv('countries_worldGDP.csv')
+
+print(data4)
+```
+
+
+```{r}
+
+str(data4)
+
+```
+
+
+```{r}
+#Change the Country column in Data4 and Countries_means to character.
+
+Countries_means$Country <- as.character(Countries_means$Country)
+
+data4$Country <- as.character(data4$Country)
+
+#Rename column 5
+
+colnames(data4)[5] <-"population_density"
+
+#Match and merge population_desity column to countries_means data
+Countries_means$population_density<- data4$population_density[match(Countries_means$Country, data4$Country)]
+
+
+data4$Country[2] == Countries_means$Country[2]
+
+print(Countries_means)
+
+```
+
+```{r}
+
+#I have combined these datasets (data4 and Countries_mean) using the countries names, one of the datasets has misspelled in the countries names so I built a function to fixand match the country name.
+
+i=1
+for (c1 in Countries_means$Country){
+  
+  c_chars = strsplit(c1,'')
+  c_chars=c_chars[[1]]
+  true_numbers =  list()
+
+    for (c2 in data4$Country){
+      c2_chars = strsplit(c2,'')
+      c2_chars=c2_chars[[1]]
+    
+      
+    if (length(c_chars) >= length(c2_chars)-2){
+        if  (((c_chars[1] == c2_chars[1]) & (c_chars[2] == c2_chars[2]) ) || ((c_chars[3] == c2_chars[3]) & (c_chars[2] == c2_chars[2]))){
+      counter = 0
+      for (char in c2_chars){
+          
+          setuation =is.null(c_chars[char])
+          if (setuation == FALSE ){
+            counter = counter+1
+          }
+      }
+      
+        }
+        
+      }
+    true_numbers[[i]] <- counter
+    replacement_index = match(c(max(unlist(true_numbers))),true_numbers)
+    
+    }
+    
+    replacement_word = data4$Country[replacement_index]
+    Countries_means$Country[i]= replacement_word
+    i=i+1
+    }
+
+```
+
+
+
+```{r}
+
+#Match and merge columns from data4 to Countries_mean data
+
+Countries_means$population_density<- data4$population_density[match(Countries_means$Country, data4$Country)]
+Countries_means$population_density <- gsub(',', '.', Countries_means$population_density)
+
+Countries_means$Literacy<- data4$Literacy[match(Countries_means$Country, data4$Country)]
+Countries_means$Literacy <- gsub(',', '.', Countries_means$Literacy)
+
+Countries_means$Climate<- data4$Climate[match(Countries_means$Country, data4$Country)]
+Countries_means$Climate <- gsub(',', '.', Countries_means$Climate)
+
+Countries_means$Industry<- data4$Industry[match(Countries_means$Country, data4$Country)]
+Countries_means$Industry <- gsub(',', '.', Countries_means$Industry)
+
+Countries_means$Agriculture<- data4$Agriculture[match(Countries_means$Country, data4$Country)]
+Countries_means$Agriculture <- gsub(',', '.', Countries_means$Agriculture)
+
+
+#Change the Literacy, population_density, Climate, Industry, and Agriculture columns to be numeric
+Countries_means$Literacy = as.numeric(as.character(Countries_means$Literacy))
+Countries_means$population_density = as.numeric(as.character(Countries_means$population_density))
+Countries_means$Climate = as.numeric(as.character(Countries_means$Climate))
+Countries_means$Industry = as.numeric(as.character(Countries_means$Industry))
+Countries_means$Agriculture = as.numeric(as.character(Countries_means$Agriculture))
+
+
+#Rename some columns
+colnames(data4)[10] <-"Literacy"
+colnames(data4)[15] <-"Climate"
+colnames(data4)[19] <-"Industry"
+colnames(data4)[18] <-"Agriculture"
+
+head(Countries_means)
+```
+
+
+```{r}
+i=1
+for ( c in Countries_means ){
+  col_name= names(Countries_means[i])
+  if (col_name == "Country"){
+    print('text')
+  }else{
+  plot(data = Countries_means, x=c, y=Countries_means$mean_infection, ,
+   xlab=col_name, ylab="mean_infection", pch=19)
+  
+  } 
+  
+  i=i+1
+}
+```
+
+```{r}
+corelations = data.frame(cor(Countries_means[,2:21], use = "complete.obs"))
+corelations
+
+```
+
+
+```{r}
+write.table(corrlations, "D:/mydata.csv", sep=",")
+
+
+```
+
+
+```{r}
+aggregate(Countries_means$mean_infection,list(Countries_means$Climate),sum)
+
+```
+
+```{r}
+
+Countries_means = Countries_means[-c(2,3,12,13,14,17,19,20,21)]
+
+```
+
+```{r}
+NA2mean <- function(x) replace(x, is.na(x), mean(x, na.rm = TRUE))
+Countries_means[2:12]=replace(Countries_means[2:12], TRUE, sapply(Countries_means[2:12], NA2mean))
+```
+
+
+```{r}
+sum(is.na(Countries_means))
+```
+
+
+```{r}
+#final_sub1 = read.csv('Counties geo.csv')
+final_sub1$population_per_k = final_sub1$Population / final_sub1$Area.in.km²
+final_sub1 = final_sub1[-c(2,3)]
+
+```
+
+```{r}
+#final_sub2 = read.csv('gender_development.csv')
+#Rename columns names
+colnames(final_sub2)[6] <-"FEMALE_LIFE_EXPENTANCY_ON_BIRTH"
+colnames(final_sub2)[7] <-"MALE_LIFE_EXPENTANCY_ON_BIRTH"
+colnames(final_sub2)[8] <-"FEMALE_YEARS_LEARNING"
+colnames(final_sub2)[9] <-"MALE_YEARS_LEARNING"
+colnames(final_sub2)[12] <-"GDP_female"
+colnames(final_sub2)[13] <-"GDP_male"
+
+
+#Change some columns to be numeric
+
+final_sub2$ FEMALE_LIFE_EXPENTANCY_ON_BIRTH=as.numeric(as.character(final_sub2$FEMALE_LIFE_EXPENTANCY_ON_BIRTH))
+final_sub2$ MALE_LIFE_EXPENTANCY_ON_BIRTH=as.numeric(as.character(final_sub2$MALE_LIFE_EXPENTANCY_ON_BIRTH))
+final_sub2$FEMALE_YEARS_LEARNING = as.numeric(as.character(final_sub2$FEMALE_YEARS_LEARNING))
+final_sub2$MALE_YEARS_LEARNING = as.numeric(as.character(final_sub2$MALE_YEARS_LEARNING))
+final_sub2$GDP_female = as.numeric(as.character(final_sub2$GDP_female))
+final_sub2$GDP_male = as.numeric(as.character(final_sub2$GDP_male))
+
+
+
+```
+
+
+
+
+
+
+```{r}
+#final_sub4 = read.csv('Fat_Supply_Quantity_Data.csv')
+final_sub4 = final_sub4[c(1,3,4,6,7,11,12)]
+
+colnames(final_sub4)[2] <-"animal_products"
+
+
+colnames(final_sub4)[3] <-"animal_fats"
+
+
+colnames(final_sub4)[4] <-"Cerial_excluding_beer"
+
+colnames(final_sub4)[7] <-"Milk"
+
+
+```
+
+```{r}
+final_sub5 = data4
+final_sub6 =Country
+
+
+```
+
+
+```{r}
+final_data = read.csv('COVID19_open_line_list.csv')
+final_data = final_data[c(2,3,6,15)]
+
+
+```
+
+
+
+
+```{r}
+names(final_sub1)
+final_data$population_per_k <- final_sub1$population_per_k[match(final_data$country, final_sub1$Country)]
+final_data$Continent <- final_sub1$Continent[match(final_data$country, final_sub1$Country)]
+
+
+
+```
+
+
+```{r}
+names(final_sub2)
+final_data$Life_expectancy <- final_sub2$FEMALE_LIFE_EXPENTANCY_ON_BIRTH[match(final_data$country, final_sub2$Country)]
+
+final_data$Life_expectancy <- final_sub2$MALE_LIFE_EXPENTANCY_ON_BIRTH[match(final_data$country, final_sub2$Country)]
+
+final_data$Life_expectancy <- final_sub2$FEMALE_YEARS_LEARNING[match(final_data$country, final_sub2$Country)]
+
+final_data$Life_expectancy <- final_sub2$MALE_YEARS_LEARNING[match(final_data$country, final_sub2$Country)]
+
+final_data$GDP <- final_sub2$GDP_female[match(final_data$country, final_sub2$Country)]
+
+final_data$GDP <- final_sub2$GDP_male[match(final_data$country, final_sub2$Country)]
+
+
+```
+
+
+```{r}
+names(final_sub3)
+```
+
+
+```{r}
+names(final_sub4)
+
+
+final_data$animal_products <- final_sub4$animal_products[match(final_data$country, final_sub4$Country)]
+
+
+final_data$animal_fats <- final_sub4$animal_fats[match(final_data$country, final_sub4$Country)]
+
+
+final_data$Cerial_excluding_beer <- final_sub4$Cerial_excluding_beer[match(final_data$country, final_sub4$Country)]
+
+
+final_data$Eggs <- final_sub4$Eggs[match(final_data$country, final_sub4$Country)]
+
+
+final_data$Miscellaneous <- final_sub4$Miscellaneous[match(final_data$country, final_sub4$Country)]
+
+
+final_data$Milk <- final_sub4$Milk[match(final_data$country, final_sub4$Country)]
+
+
+```
+
+
+```{r}
+
+names(final_sub5)
+
+final_data$Literacy <- final_sub4$Literacy[match(final_data$country, final_sub5$Country)]
+
+final_data$Climate <- final_sub4$Climate[match(final_data$country, final_sub5$Country)]
+
+
+```
+
+
+# 6. Reseach 2: Machine learning and deep learning
+
+
+
+```{r}
+#Data source: https://www.covid19survivalcalculator.com/en/download
+
+#Import the data
+
+#final_data2 = read.csv('master_dataset.csv', header = FALSE)
+
+#Data source:https://www.kaggle.com/ahmedmd/corona-observations?select=convertcsvy.json
+
+final_data2 = read.csv('master_dataset.csv', header = FALSE)
+result = fromJSON(file ="convertcsvy.json")
+final_data <- do.call(rbind, result)
+json_data_frame <- as.data.frame(final_data)
+final_data2 <- rbind(final_data2, json_data_frame)
+
+
+#Display the fist few rows of the data
+head(final_data2)
+
+```
+
+
+```{r}
+#Remove un-important/irrelevant features
+
+final_data2 = final_data2[-c(1,2,4,5,6,20,22,23,24,25,26,29,39,40,41,42,43)]
+
+#Remove the last column
+final_data2 = final_data2 [-c(27)]
+```
+
+
+```{r}
+#any values with empty string as NA should be removed
+final_data2 = subset(final_data2, V7!="" || V8!=""|| V9!="" || V10!="" || V11!="" || V12!="" || V13!="" || V14!="" || V15!="" || V16!="" || V17!="" || V18!="" || V19!="" || V21!="" || V27!="" || V30!="" || V31!="" || V32!="" || V33!="" || V34!="" || V35!="" || V36!="" || V37!="" || V38!="")
+
+#Remove unknown observation in sex column
+final_data2 = subset(final_data2, V12!="unknown")
+
+```
+
+
+```{r}
+#Create a function to substitue the header
+header_rename <- function(df) {
+  names(df) <- as.character(unlist(df[1,]))
+  df[-1,]
+}
+final_data2=header_rename(final_data2)
+
+#Subsit the NA values in smoking column
+final_data2 = subset(final_data2, smoking!="")
+
+```
+
+
+```{r}
+#change all values to string
+bob <- data.frame(lapply(final_data2, as.character), stringsAsFactors=FALSE)
+
+# Divide the positive and negative cases
+final_data2_p = final_data2[final_data2$covid19_positive =="1",]
+final_data2_n = final_data2[final_data2$covid19_positive =="0",]
+
+#Reduce the negative cases to 770. Negative cases are very large than positive cases which will cause biase in the data due to in quality in number of psotive and negative cases.
+final_data2_n = final_data2_n[1:770,]
+
+#combine the negative and positive cases together.
+new_data <- rbind(final_data2_p, final_data2_n)
+
+```
+
+```{r}
+#Plot histogram 
+
+plotHistFunc <- function(x, na.rm = TRUE) {               
+  nm <- names(x)
+  for (i in seq_along(nm)) {
+    print(ggplot(x,aes_string(x = nm[i],fill = "covid19_positive")) + geom_bar()) }
+}
+
+plotHistFunc(new_data)
+```
+
+
+```{r}
+#change height, weight, and bmi to numberic. It's important to change it to character first before numberic to aviod mistakes.
+
+new_data$height =  as.numeric(as.character(new_data$height))
+new_data$weight =  as.numeric(as.character(new_data$weight))
+new_data$bmi =  as.numeric(as.character(new_data$bmi))
+new_data$covid19_positive <- factor(new_data$covid19_positive)
+
+new_data$sex = as.factor(as.numeric(new_data$sex))
+new_data$blood_type = as.factor(as.numeric(new_data$blood_type))
+new_data$smoking = as.factor(as.numeric(new_data$smoking))
+new_data$alcohol = as.factor(as.numeric(new_data$alcohol))
+new_data$cannabis = as.factor(as.numeric(new_data$cannabis))
+new_data$amphetamines = as.factor(as.numeric(new_data$amphetamines))
+new_data$cocaine = as.factor(as.numeric(new_data$cocaine))
+new_data$age = as.factor(as.numeric(new_data$age))
+
+```
+
+
+```{r}
+#Scalling and dummy variables
+
+new_data2 = new_data
+new_data2$height = scale(new_data2$height)
+new_data2$weight = scale(new_data2$weight)
+new_data2$bmi = scale(new_data2$bmi)
+
+#change some features to numberic before we do scalling
+new_data2$cannabis = scale(as.numeric(new_data2$cannabis))
+new_data2$amphetamines = scale(as.numeric(new_data2$amphetamines))
+new_data2$cocaine = scale(as.numeric(new_data2$cocaine))
+new_data2$mdma = scale(as.numeric(as.character(new_data2$mdma)))
+new_data2$lsd = scale(as.numeric(as.character(new_data2$lsd)))
+
+
+names(new_data)
+```
+
+
+```{r}
+#Dummy variables
+new_data2 <- fastDummies::dummy_cols(new_data2)
+```
+
+
+```{r}
+#Remove categorical features after we did the dummy variables.
+
+new_data2 = new_data2[-c(1,2,3,7,8,9,14,15,16,17,18,19,20,21,22,23,24,25,26)]
+
+names(new_data2)
+```
+
+```{r}
+#names(new_data2)
+
+new_data3 = new_data2
+new_data2= new_data3
+new_data2 = new_data2 [-c(79)]
+new_data2$covid19_positive_1   = as.factor(new_data2$covid19_positive_1 )
+colnames(new_data2)[52]= "alcohol_01"
+
+
+
+## set the seed to make your partition reproducible
+
+smp_size <- floor(0.80 * nrow(new_data2))
+set.seed(123)
+train_ind <- sample(seq_len(nrow(new_data2)), size = smp_size)
+
+train <- new_data2[train_ind, ]
+test <- new_data2[-train_ind, ]
+```
+
+## Machine learning model using Random Forest
+
+```{r}
+#Random Forest Classifier
+
+rf <- randomForest(covid19_positive_1 ~ .,
+  data=train,
+  importance=TRUE,
+  na.action=na.roughfix
+  )
+
+#names(train)
+
+y_pred = predict(rf ,test )
+y_pred2 = as.factor(y_pred)
+
+confusionMatrix(y_pred, test$covid19_positive)
+
+
+#str(train)
+```
+
+## Deep learning model
+
+```{r}
+#Slpit the input and output to train and test. 
+X_train= train [-c(79)]
+X_test= test [-c(79)]
+Y_train= train [c(79)]
+Y_test= test [c(79)]
+```
+
+```{r}
+#Deep learning require the output to be dummy variables. 
+
+Y_train = to_categorical(Y_train,2)
+
+Y_test = to_categorical(Y_test,2)
+```
+
+
+```{r}
+# Deep learning require a sequence of layers
+Deep_model= keras_model_sequential()
+```
+
+
+```{r}
+#Add layers to our model. In each layer, we should include units (nodes of the exite layers) activation (helps in non-linearity) but the in the first layer, we should input shape that include the number of features.
+Deep_model %>% 
+  layer_dense(units= 50, activation = "relu", input_shape = 99) %>%
+  layer_dense(units= 70, activation = "sigmoid") %>%
+  layer_dense(units= 2, activation = "softmax") %>%
+```
+
+
+```{r}
+#Structure the neural network(deep learning model)
+Summary (Deep_model)
+ 
+#Compling the model. Use optimizer adam and use accuracy to measure performance and use crossentropy to measure the error.
+
+Deep_model %>% compile(loss = "categorical_crossentropy", optimizer = optimizer_adam(), metrics= c("accuracy"))
+```
+
+
+```{r}
+#History: we used validation from the training set with .1 and number of iteration is 50 and divided the data to bathes of 42. Recording the operation in (hist)
+hist = Deep_model %>% fit(X_train,Y_train, epochs=50, batch_size= 42, validation_split= .1)
+```
+
+```{r}
+#Deep Learning evaluation 
+Deep_model %>% evlauate (X_test, Y_test)
+```
+
+
+```{r}
+#Deep Model 
+Deep_model %>% predict_classes(X_test)
+
+```
+
+```{r}
+plot(hist)
+```
+
+# 7. Resources:
+
+
+https://www.kaggle.com/sandeepsonare/data-on-covid19-by-our-world-in-data?fbclid=IwAR1vfO6-30CfFkAYH2B8uUZi9JuSshDJWKaoeW0N6Yd3b2o2Te43n-Km0sg
+
+https://www.kaggle.com/fernandol/countries-of-the-world?fbclid=IwAR3ZZ32gnC3b7nH4rnskx3Y1d5BFvqFSA1jp-W-xTNJcEgoE86DJetu_XGc
+
+https://www.kaggle.com/nabeelsajid917/covid-19-x-ray-10000-images?fbclid=IwAR1814NzCczB4VdRMlSvCZG7_HQBj8ZWGn2YJqGg7LlLW0-s_bOZ-uuZmJg
+
+https://www.kaggle.com/nabeelsajid917/covid-19-x-ray-10000-images?fbclid=IwAR1814NzCczB4VdRMlSvCZG7_HQBj8ZWGn2YJqGg7LlLW0-s_bOZ-uuZmJg#covid19.model
+
+https://www.geonames.org/countries/
+
+Source: https://www.kaggle.com/fernandol/countries-of-the-world?fbclid=IwAR2r9kQQHPlbl3TINuOHjMSYKpPRWta6IHU4LwgxCf9A7rWj6cq557hQYYM
+
+
+
